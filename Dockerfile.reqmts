@@ -1,0 +1,65 @@
+# Base image with CUDA
+FROM nvidia/cuda:11.8.0-devel-ubuntu20.04
+
+# Set non-interactive frontend and CUDA visibility
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy source code and cudnn tarball
+COPY VAP-internal_battery /workspace/VAP-internal_battery
+COPY cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz /tmp/
+COPY requirements.txt /workspace/
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y \
+    python3.10 python3.10-dev python3.10-distutils python3.10-venv \
+    curl git cmake sudo wget build-essential \
+    libgl1 libglib2.0-0 \
+    libx11-xcb1 libxrender1 libxi6 libxext6 libsm6 libxrandr2 libfontconfig1 \
+    libxcb1 libxcb-xinerama0 libxcb-xfixes0 libxcb-shm0 libxcb-icccm4 \
+    libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxkbcommon-x11-0 \
+    libglu1-mesa libgl1-mesa-glx libgtk2.0-dev pkg-config \
+    xvfb \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python && \
+    ln -sf /usr/local/bin/pip /usr/bin/pip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip and core tools
+RUN python -m pip install --upgrade pip setuptools wheel ninja
+
+# Install cuDNN
+RUN tar -xvf /tmp/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz -C /tmp && \
+    cp -P /tmp/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/include/* /usr/local/cuda/include/ && \
+    cp -P /tmp/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/lib/* /usr/local/cuda/lib64/ && \
+    ldconfig && \
+    rm -rf /tmp/cudnn*
+
+ENV CUDNN_DIR=/home/atharva/cudnn-linux-x86_64-8.5.0.96_cuda11-archive
+ENV LD_LIBRARY_PATH=$CUDNN_DIR/lib:$LD_LIBRARY_PATH
+
+RUN pip install --no-cache-dir torch==2.0.0+cu118 torchvision==0.15.1+cu118 torchaudio==2.0.1+cu118 --index-url https://download.pytorch.org/whl/cu118
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Set CUDA paths
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=$CUDA_HOME/bin:$PATH
+ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+ENV FORCE_CUDA=1
+ENV TORCH_CUDA_ARCH_LIST="8.6"
+
+# Expose JupyterLab port
+EXPOSE 8888
+
+# Start JupyterLab
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--allow-root", "--no-browser"]
